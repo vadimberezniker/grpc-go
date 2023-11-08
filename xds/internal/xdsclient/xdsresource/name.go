@@ -21,6 +21,8 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+
+	"google.golang.org/grpc/internal/envconfig"
 )
 
 // FederationScheme is the scheme of a federation resource name.
@@ -54,6 +56,10 @@ type Name struct {
 // The caller can tell if the parsing is successful by checking the returned
 // Scheme.
 func ParseName(name string) *Name {
+	if !envconfig.XDSFederation {
+		// Return "" scheme to use the default authority for the server.
+		return &Name{ID: name}
+	}
 	if !strings.Contains(name, "://") {
 		// Only the long form URL, with ://, is valid.
 		return &Name{ID: name}

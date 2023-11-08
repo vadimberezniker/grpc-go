@@ -26,21 +26,19 @@ const DefaultChanBufferSize = 1
 
 // Channel wraps a generic channel and provides a timed receive operation.
 type Channel struct {
-	// C is the underlying channel on which values sent using the SendXxx() methods are delivered.
-	// Tests which cannot use ReceiveXxx() for whatever reasons can use C to read the values.
-	C chan any
+	ch chan any
 }
 
 // Send sends value on the underlying channel.
 func (c *Channel) Send(value any) {
-	c.C <- value
+	c.ch <- value
 }
 
 // SendContext sends value on the underlying channel, or returns an error if
 // the context expires.
 func (c *Channel) SendContext(ctx context.Context, value any) error {
 	select {
-	case c.C <- value:
+	case c.ch <- value:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -51,7 +49,7 @@ func (c *Channel) SendContext(ctx context.Context, value any) error {
 // if successful or false if the channel was full.
 func (c *Channel) SendOrFail(value any) bool {
 	select {
-	case c.C <- value:
+	case c.ch <- value:
 		return true
 	default:
 		return false
@@ -62,7 +60,7 @@ func (c *Channel) SendOrFail(value any) bool {
 // and false if the channel was empty.
 func (c *Channel) ReceiveOrFail() (any, bool) {
 	select {
-	case got := <-c.C:
+	case got := <-c.ch:
 		return got, true
 	default:
 		return nil, false
@@ -75,7 +73,7 @@ func (c *Channel) Receive(ctx context.Context) (any, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case got := <-c.C:
+	case got := <-c.ch:
 		return got, nil
 	}
 }
@@ -88,9 +86,9 @@ func (c *Channel) Receive(ctx context.Context) (any, error) {
 func (c *Channel) Replace(value any) {
 	for {
 		select {
-		case c.C <- value:
+		case c.ch <- value:
 			return
-		case <-c.C:
+		case <-c.ch:
 		}
 	}
 }
@@ -102,5 +100,5 @@ func NewChannel() *Channel {
 
 // NewChannelWithSize returns a new Channel with a buffer of bufSize.
 func NewChannelWithSize(bufSize int) *Channel {
-	return &Channel{C: make(chan any, bufSize)}
+	return &Channel{ch: make(chan any, bufSize)}
 }

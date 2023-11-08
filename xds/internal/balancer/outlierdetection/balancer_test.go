@@ -543,13 +543,13 @@ type subConnWithState struct {
 	state balancer.SubConnState
 }
 
-func setup(t *testing.T) (*outlierDetectionBalancer, *testutils.BalancerClientConn, func()) {
+func setup(t *testing.T) (*outlierDetectionBalancer, *testutils.TestClientConn, func()) {
 	t.Helper()
 	builder := balancer.Get(Name)
 	if builder == nil {
 		t.Fatalf("balancer.Get(%q) returned nil", Name)
 	}
-	tcc := testutils.NewBalancerClientConn(t)
+	tcc := testutils.NewTestClientConn(t)
 	odB := builder.Build(tcc, balancer.BuildOptions{ChannelzParentID: channelz.NewIdentifierForTesting(channelz.RefChannel, time.Now().Unix(), nil)})
 	return odB.(*outlierDetectionBalancer), tcc, odB.Close
 }

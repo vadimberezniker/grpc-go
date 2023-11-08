@@ -36,6 +36,7 @@ import (
 	"google.golang.org/grpc/internal/balancer/gracefulswitch"
 	"google.golang.org/grpc/internal/buffer"
 	"google.golang.org/grpc/internal/channelz"
+	"google.golang.org/grpc/internal/envconfig"
 	"google.golang.org/grpc/internal/grpclog"
 	"google.golang.org/grpc/internal/grpcrand"
 	"google.golang.org/grpc/internal/grpcsync"
@@ -54,7 +55,9 @@ var (
 const Name = "outlier_detection_experimental"
 
 func init() {
-	balancer.Register(bb{})
+	if envconfig.XDSOutlierDetection {
+		balancer.Register(bb{})
+	}
 }
 
 type bb struct{}

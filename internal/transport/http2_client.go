@@ -46,6 +46,7 @@ import (
 	"google.golang.org/grpc/internal/syscall"
 	"google.golang.org/grpc/internal/transport/networktype"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/log"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/resolver"
@@ -176,9 +177,7 @@ func dial(ctx context.Context, fn func(context.Context, string) (net.Conn, error
 	if networkType == "tcp" && useProxy {
 		return proxyDial(ctx, address, grpcUA)
 	}
-	// KeepAlive is set to a negative value to prevent Go's override of the TCP
-	// keepalive time and interval; retain the OS default.
-	return (&net.Dialer{KeepAlive: time.Duration(-1)}).DialContext(ctx, networkType, address)
+	return (&net.Dialer{}).DialContext(ctx, networkType, address)
 }
 
 func isTemporary(err error) bool {
@@ -705,6 +704,8 @@ func (e NewStreamError) Error() string {
 func (t *http2Client) NewStream(ctx context.Context, callHdr *CallHdr) (*Stream, error) {
 	ctx = peer.NewContext(ctx, t.getPeer())
 
+	log.CtxTracef(ctx, "NewStream local addr %q", t.conn.LocalAddr())
+
 	// ServerName field of the resolver returned address takes precedence over
 	// Host field of CallHdr to determine the :authority header. This is because,
 	// the ServerName field takes precedence for server authentication during
@@ -739,6 +740,7 @@ func (t *http2Client) NewStream(ctx context.Context, callHdr *CallHdr) (*Stream,
 		hf:        headerFields,
 		endStream: false,
 		initStream: func(id uint32) error {
+			log.CtxTracef(ctx, "NewStream init stream %d", id)
 			t.mu.Lock()
 			// TODO: handle transport closure in loopy instead and remove this
 			// initStream is never called when transport is draining.
@@ -756,6 +758,7 @@ func (t *http2Client) NewStream(ctx context.Context, callHdr *CallHdr) (*Stream,
 				t.kpDormancyCond.Signal()
 			}
 			t.mu.Unlock()
+			log.CtxTracef(ctx, "NewStream init stream %d done", id)
 			return nil
 		},
 		onOrphaned: cleanup,
@@ -817,27 +820,36 @@ func (t *http2Client) NewStream(ctx context.Context, callHdr *CallHdr) (*Stream,
 		return true
 	}
 	for {
+		log.CtxTracef(ctx, "NewStream put header")
 		success, err := t.controlBuf.executeAndPut(func(it any) bool {
 			return checkForHeaderListSize(it) && checkForStreamQuota(it)
 		}, hdr)
 		if err != nil {
+			log.CtxTracef(ctx, "NewStream connection closed")
 			// Connection closed.
 			return nil, &NewStreamError{Err: err, AllowTransparentRetry: true}
 		}
 		if success {
+			log.CtxTracef(ctx, "NewStream connection closed")
 			break
 		}
 		if hdrListSizeErr != nil {
+			log.CtxTracef(ctx, "NewStream header list size error")
 			return nil, &NewStreamError{Err: hdrListSizeErr}
 		}
+		log.CtxTracef(ctx, "NewStream wait for response")
 		firstTry = false
 		select {
 		case <-ch:
+			log.CtxTracef(ctx, "NewStream got response")
 		case <-ctx.Done():
+			log.CtxTracef(ctx, "NewStream context done")
 			return nil, &NewStreamError{Err: ContextErr(ctx.Err())}
 		case <-t.goAway:
+			log.CtxTracef(ctx, "NewStream go away")
 			return nil, &NewStreamError{Err: errStreamDrain, AllowTransparentRetry: true}
 		case <-t.ctx.Done():
+			log.CtxTracef(ctx, "NewStream transport context done")
 			return nil, &NewStreamError{Err: ErrConnClosing, AllowTransparentRetry: true}
 		}
 	}
@@ -1401,6 +1413,7 @@ func (t *http2Client) operateHeaders(frame *http2.MetaHeadersFrame) {
 		mdata          = make(map[string][]string)
 		contentTypeErr = "malformed header: missing HTTP content-type"
 		grpcMessage    string
+		statusGen      *status.Status
 		recvCompress   string
 		httpStatusCode *int
 		httpStatusErr  string
@@ -1435,6 +1448,12 @@ func (t *http2Client) operateHeaders(frame *http2.MetaHeadersFrame) {
 			rawStatusCode = codes.Code(uint32(code))
 		case "grpc-message":
 			grpcMessage = decodeGrpcMessage(hf.Value)
+		case "grpc-status-details-bin":
+			var err error
+			statusGen, err = decodeGRPCStatusDetails(hf.Value)
+			if err != nil {
+				headerError = fmt.Sprintf("transport: malformed grpc-status-details-bin: %v", err)
+			}
 		case ":status":
 			if hf.Value == "200" {
 				httpStatusErr = ""
@@ -1543,12 +1562,14 @@ func (t *http2Client) operateHeaders(frame *http2.MetaHeadersFrame) {
 		return
 	}
 
-	status := istatus.NewWithProto(rawStatusCode, grpcMessage, mdata[grpcStatusDetailsBinHeader])
+	if statusGen == nil {
+		statusGen = status.New(rawStatusCode, grpcMessage)
+	}
 
 	// If client received END_STREAM from server while stream was still active,
 	// send RST_STREAM.
 	rstStream := s.getState() == streamActive
-	t.closeStream(s, io.EOF, rstStream, http2.ErrCodeNo, status, mdata, true)
+	t.closeStream(s, io.EOF, rstStream, http2.ErrCodeNo, statusGen, mdata, true)
 }
 
 // readServerPreface reads and handles the initial settings frame from the

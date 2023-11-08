@@ -46,7 +46,6 @@ func init() {
 	internal.WithBinaryLogger = withBinaryLogger
 	internal.JoinDialOptions = newJoinDialOption
 	internal.DisableGlobalDialOptions = newDisableGlobalDialOptions
-	internal.WithRecvBufferPool = withRecvBufferPool
 }
 
 // dialOptions configure a Dial call. dialOptions are set by the DialOption
@@ -414,15 +413,6 @@ func WithTimeout(d time.Duration) DialOption {
 // connections. If FailOnNonTempDialError() is set to true, and an error is
 // returned by f, gRPC checks the error's Temporary() method to decide if it
 // should try to reconnect to the network address.
-//
-// Note: As of Go 1.21, the standard library overrides the OS defaults for
-// TCP keepalive time and interval to 15s.
-// To retain OS defaults, use a net.Dialer with the KeepAlive field set to a
-// negative value.
-//
-// For more information, please see [issue 23459] in the Go github repo.
-//
-// [issue 23459]: https://github.com/golang/go/issues/23459
 func WithContextDialer(f func(context.Context, string) (net.Conn, error)) DialOption {
 	return newFuncDialOption(func(o *dialOptions) {
 		o.copts.Dialer = f
@@ -654,7 +644,6 @@ func defaultDialOptions() dialOptions {
 			UseProxy:        true,
 		},
 		recvBufferPool: nopBufferPool{},
-		idleTimeout:    30 * time.Minute,
 	}
 }
 
@@ -691,8 +680,8 @@ func WithResolvers(rs ...resolver.Builder) DialOption {
 // channel will exit idle mode when the Connect() method is called or when an
 // RPC is initiated.
 //
-// A default timeout of 30 minutes will be used if this dial option is not set
-// at dial time and idleness can be disabled by passing a timeout of zero.
+// By default this feature is disabled, which can also be explicitly configured
+// by passing zero to this function.
 //
 // # Experimental
 //
@@ -715,13 +704,11 @@ func WithIdleTimeout(d time.Duration) DialOption {
 // options are used: WithStatsHandler, EnableTracing, or binary logging. In such
 // cases, the shared buffer pool will be ignored.
 //
-// Deprecated: use experimental.WithRecvBufferPool instead.  Will be deleted in
-// v1.60.0 or later.
+// # Experimental
+//
+// Notice: This API is EXPERIMENTAL and may be changed or removed in a
+// later release.
 func WithRecvBufferPool(bufferPool SharedBufferPool) DialOption {
-	return withRecvBufferPool(bufferPool)
-}
-
-func withRecvBufferPool(bufferPool SharedBufferPool) DialOption {
 	return newFuncDialOption(func(o *dialOptions) {
 		o.recvBufferPool = bufferPool
 	})

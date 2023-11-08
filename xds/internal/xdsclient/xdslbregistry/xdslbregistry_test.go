@@ -79,6 +79,8 @@ func (s) TestConvertToServiceConfigSuccess(t *testing.T) {
 		name       string
 		policy     *v3clusterpb.LoadBalancingPolicy
 		wantConfig string // JSON config
+		rhDisabled bool
+		pfDisabled bool
 		lrEnabled  bool
 	}{
 		{
@@ -87,7 +89,7 @@ func (s) TestConvertToServiceConfigSuccess(t *testing.T) {
 				Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-							TypedConfig: testutils.MarshalAny(t, &v3ringhashpb.RingHash{
+							TypedConfig: testutils.MarshalAny(&v3ringhashpb.RingHash{
 								HashFunction:    v3ringhashpb.RingHash_XX_HASH,
 								MinimumRingSize: wrapperspb.UInt64(10),
 								MaximumRingSize: wrapperspb.UInt64(100),
@@ -104,7 +106,7 @@ func (s) TestConvertToServiceConfigSuccess(t *testing.T) {
 				Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-							TypedConfig: testutils.MarshalAny(t, &v3leastrequestpb.LeastRequest{
+							TypedConfig: testutils.MarshalAny(&v3leastrequestpb.LeastRequest{
 								ChoiceCount: wrapperspb.UInt32(3),
 							}),
 						},
@@ -120,7 +122,7 @@ func (s) TestConvertToServiceConfigSuccess(t *testing.T) {
 				Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-							TypedConfig: testutils.MarshalAny(t, &v3pickfirstpb.PickFirst{
+							TypedConfig: testutils.MarshalAny(&v3pickfirstpb.PickFirst{
 								ShuffleAddressList: true,
 							}),
 						},
@@ -135,7 +137,7 @@ func (s) TestConvertToServiceConfigSuccess(t *testing.T) {
 				Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-							TypedConfig: testutils.MarshalAny(t, &v3pickfirstpb.PickFirst{}),
+							TypedConfig: testutils.MarshalAny(&v3pickfirstpb.PickFirst{}),
 						},
 					},
 				},
@@ -148,7 +150,7 @@ func (s) TestConvertToServiceConfigSuccess(t *testing.T) {
 				Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-							TypedConfig: testutils.MarshalAny(t, &v3roundrobinpb.RoundRobin{}),
+							TypedConfig: testutils.MarshalAny(&v3roundrobinpb.RoundRobin{}),
 						},
 					},
 				},
@@ -161,12 +163,12 @@ func (s) TestConvertToServiceConfigSuccess(t *testing.T) {
 				Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-							TypedConfig: testutils.MarshalAny(t, &v3roundrobinpb.RoundRobin{}),
+							TypedConfig: testutils.MarshalAny(&v3roundrobinpb.RoundRobin{}),
 						},
 					},
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-							TypedConfig: testutils.MarshalAny(t, &v3ringhashpb.RingHash{
+							TypedConfig: testutils.MarshalAny(&v3ringhashpb.RingHash{
 								HashFunction:    v3ringhashpb.RingHash_XX_HASH,
 								MinimumRingSize: wrapperspb.UInt64(10),
 								MaximumRingSize: wrapperspb.UInt64(100),
@@ -178,19 +180,42 @@ func (s) TestConvertToServiceConfigSuccess(t *testing.T) {
 			wantConfig: `[{"round_robin": {}}]`,
 		},
 		{
-			name: "pf_rr_use_pick_first",
+			name: "ring_hash_disabled_rh_rr_use_first_supported",
 			policy: &v3clusterpb.LoadBalancingPolicy{
 				Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-							TypedConfig: testutils.MarshalAny(t, &v3pickfirstpb.PickFirst{
+							TypedConfig: testutils.MarshalAny(&v3ringhashpb.RingHash{
+								HashFunction:    v3ringhashpb.RingHash_XX_HASH,
+								MinimumRingSize: wrapperspb.UInt64(10),
+								MaximumRingSize: wrapperspb.UInt64(100),
+							}),
+						},
+					},
+					{
+						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
+							TypedConfig: testutils.MarshalAny(&v3roundrobinpb.RoundRobin{}),
+						},
+					},
+				},
+			},
+			wantConfig: `[{"round_robin": {}}]`,
+			rhDisabled: true,
+		},
+		{
+			name: "pick_first_enabled_pf_rr_use_pick_first",
+			policy: &v3clusterpb.LoadBalancingPolicy{
+				Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
+					{
+						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
+							TypedConfig: testutils.MarshalAny(&v3pickfirstpb.PickFirst{
 								ShuffleAddressList: true,
 							}),
 						},
 					},
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-							TypedConfig: testutils.MarshalAny(t, &v3roundrobinpb.RoundRobin{}),
+							TypedConfig: testutils.MarshalAny(&v3roundrobinpb.RoundRobin{}),
 						},
 					},
 				},
@@ -203,14 +228,14 @@ func (s) TestConvertToServiceConfigSuccess(t *testing.T) {
 				Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-							TypedConfig: testutils.MarshalAny(t, &v3leastrequestpb.LeastRequest{
+							TypedConfig: testutils.MarshalAny(&v3leastrequestpb.LeastRequest{
 								ChoiceCount: wrapperspb.UInt32(32),
 							}),
 						},
 					},
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-							TypedConfig: testutils.MarshalAny(t, &v3roundrobinpb.RoundRobin{}),
+							TypedConfig: testutils.MarshalAny(&v3roundrobinpb.RoundRobin{}),
 						},
 					},
 				},
@@ -225,7 +250,7 @@ func (s) TestConvertToServiceConfigSuccess(t *testing.T) {
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
 							// The type not registered in gRPC Policy registry.
 							// Should fallback to next policy in list.
-							TypedConfig: testutils.MarshalAny(t, &v3xdsxdstypepb.TypedStruct{
+							TypedConfig: testutils.MarshalAny(&v3xdsxdstypepb.TypedStruct{
 								TypeUrl: "type.googleapis.com/myorg.ThisTypeDoesNotExist",
 								Value:   &structpb.Struct{},
 							}),
@@ -233,7 +258,7 @@ func (s) TestConvertToServiceConfigSuccess(t *testing.T) {
 					},
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-							TypedConfig: testutils.MarshalAny(t, &v3xdsxdstypepb.TypedStruct{
+							TypedConfig: testutils.MarshalAny(&v3xdsxdstypepb.TypedStruct{
 								TypeUrl: "type.googleapis.com/myorg.MyCustomLeastRequestPolicy",
 								Value:   &structpb.Struct{},
 							}),
@@ -249,7 +274,7 @@ func (s) TestConvertToServiceConfigSuccess(t *testing.T) {
 				Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-							TypedConfig: testutils.MarshalAny(t, &v1xdsudpatypepb.TypedStruct{
+							TypedConfig: testutils.MarshalAny(&v1xdsudpatypepb.TypedStruct{
 								TypeUrl: "type.googleapis.com/myorg.MyCustomLeastRequestPolicy",
 								Value:   &structpb.Struct{},
 							}),
@@ -265,7 +290,7 @@ func (s) TestConvertToServiceConfigSuccess(t *testing.T) {
 				Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-							TypedConfig: wrrLocalityAny(t, &v3roundrobinpb.RoundRobin{}),
+							TypedConfig: wrrLocalityAny(&v3roundrobinpb.RoundRobin{}),
 						},
 					},
 				},
@@ -278,7 +303,7 @@ func (s) TestConvertToServiceConfigSuccess(t *testing.T) {
 				Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-							TypedConfig: wrrLocalityAny(t, &v3xdsxdstypepb.TypedStruct{
+							TypedConfig: wrrLocalityAny(&v3xdsxdstypepb.TypedStruct{
 								TypeUrl: "type.googleapis.com/myorg.MyCustomLeastRequestPolicy",
 								Value:   &structpb.Struct{},
 							}),
@@ -294,7 +319,7 @@ func (s) TestConvertToServiceConfigSuccess(t *testing.T) {
 				Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-							TypedConfig: wrrLocalityAny(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, &v3roundrobinpb.RoundRobin{}))))))))))))))),
+							TypedConfig: wrrLocalityAny(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(&v3roundrobinpb.RoundRobin{}))))))))))))))),
 						},
 					},
 				},
@@ -307,9 +332,17 @@ func (s) TestConvertToServiceConfigSuccess(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			if test.rhDisabled {
+				defer func(old bool) { envconfig.XDSRingHash = old }(envconfig.XDSRingHash)
+				envconfig.XDSRingHash = false
+			}
 			if test.lrEnabled {
 				defer func(old bool) { envconfig.LeastRequestLB = old }(envconfig.LeastRequestLB)
 				envconfig.LeastRequestLB = true
+			}
+			if test.pfDisabled {
+				defer func(old bool) { envconfig.PickFirstLBConfig = old }(envconfig.PickFirstLBConfig)
+				envconfig.PickFirstLBConfig = false
 			}
 			rawJSON, err := xdslbregistry.ConvertToServiceConfig(test.policy, 0)
 			if err != nil {
@@ -355,7 +388,7 @@ func (s) TestConvertToServiceConfigFailure(t *testing.T) {
 				Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-							TypedConfig: testutils.MarshalAny(t, &v3ringhashpb.RingHash{
+							TypedConfig: testutils.MarshalAny(&v3ringhashpb.RingHash{
 								HashFunction:    v3ringhashpb.RingHash_MURMUR_HASH_2,
 								MinimumRingSize: wrapperspb.UInt64(10),
 								MaximumRingSize: wrapperspb.UInt64(100),
@@ -373,7 +406,7 @@ func (s) TestConvertToServiceConfigFailure(t *testing.T) {
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
 							// The type not registered in gRPC Policy registry.
-							TypedConfig: testutils.MarshalAny(t, &v3xdsxdstypepb.TypedStruct{
+							TypedConfig: testutils.MarshalAny(&v3xdsxdstypepb.TypedStruct{
 								TypeUrl: "type.googleapis.com/myorg.ThisTypeDoesNotExist",
 								Value:   &structpb.Struct{},
 							}),
@@ -382,7 +415,7 @@ func (s) TestConvertToServiceConfigFailure(t *testing.T) {
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
 							// Not supported by gRPC-Go.
-							TypedConfig: testutils.MarshalAny(t, &v3leastrequestpb.LeastRequest{}),
+							TypedConfig: testutils.MarshalAny(&v3leastrequestpb.LeastRequest{}),
 						},
 					},
 				},
@@ -395,7 +428,7 @@ func (s) TestConvertToServiceConfigFailure(t *testing.T) {
 				Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 					{
 						TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-							TypedConfig: wrrLocalityAny(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, wrrLocality(t, &v3roundrobinpb.RoundRobin{})))))))))))))))),
+							TypedConfig: wrrLocalityAny(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(wrrLocality(&v3roundrobinpb.RoundRobin{})))))))))))))))),
 						},
 					},
 				},
@@ -422,13 +455,13 @@ func (s) TestConvertToServiceConfigFailure(t *testing.T) {
 // wrrLocality is a helper that takes a proto message and returns a
 // WrrLocalityProto with the proto message marshaled into a proto.Any as a
 // child.
-func wrrLocality(t *testing.T, m proto.Message) *v3wrrlocalitypb.WrrLocality {
+func wrrLocality(m proto.Message) *v3wrrlocalitypb.WrrLocality {
 	return &v3wrrlocalitypb.WrrLocality{
 		EndpointPickingPolicy: &v3clusterpb.LoadBalancingPolicy{
 			Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 				{
 					TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-						TypedConfig: testutils.MarshalAny(t, m),
+						TypedConfig: testutils.MarshalAny(m),
 					},
 				},
 			},
@@ -438,6 +471,6 @@ func wrrLocality(t *testing.T, m proto.Message) *v3wrrlocalitypb.WrrLocality {
 
 // wrrLocalityAny takes a proto message and returns a wrr locality proto
 // marshaled as an any with an any child set to the marshaled proto message.
-func wrrLocalityAny(t *testing.T, m proto.Message) *anypb.Any {
-	return testutils.MarshalAny(t, wrrLocality(t, m))
+func wrrLocalityAny(m proto.Message) *anypb.Any {
+	return testutils.MarshalAny(wrrLocality(m))
 }

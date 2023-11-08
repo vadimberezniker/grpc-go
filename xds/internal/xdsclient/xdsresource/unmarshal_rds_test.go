@@ -30,6 +30,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/internal/envconfig"
 	"google.golang.org/grpc/internal/pretty"
 	"google.golang.org/grpc/internal/testutils"
 	"google.golang.org/grpc/internal/xds/matcher"
@@ -147,6 +148,12 @@ func (s) TestRDSGenerateRDSUpdateFromRouteConfiguration(t *testing.T) {
 				}},
 			}
 		}
+		goodUpdate = RouteConfigUpdate{
+			VirtualHosts: []*VirtualHost{{
+				Domains: []string{ldsTarget},
+				Routes:  nil,
+			}},
+		}
 		goodUpdateWithNormalRoute = RouteConfigUpdate{
 			VirtualHosts: []*VirtualHost{
 				{
@@ -215,11 +222,17 @@ func (s) TestRDSGenerateRDSUpdateFromRouteConfiguration(t *testing.T) {
 		defaultRetryBackoff = RetryBackoff{BaseInterval: 25 * time.Millisecond, MaxInterval: 250 * time.Millisecond}
 	)
 
+	oldRLS := envconfig.XDSRLS
+	defer func() {
+		envconfig.XDSRLS = oldRLS
+	}()
+
 	tests := []struct {
 		name       string
 		rc         *v3routepb.RouteConfiguration
 		wantUpdate RouteConfigUpdate
 		wantError  bool
+		rlsEnabled bool
 	}{
 		{
 			name: "default-route-match-field-is-nil",
@@ -557,17 +570,17 @@ func (s) TestRDSGenerateRDSUpdateFromRouteConfiguration(t *testing.T) {
 		},
 		{
 			name:       "good-route-config-with-http-filter-config-in-old-typed-struct",
-			rc:         goodRouteConfigWithFilterConfigs(map[string]*anypb.Any{"foo": testutils.MarshalAny(t, customFilterOldTypedStructConfig)}),
+			rc:         goodRouteConfigWithFilterConfigs(map[string]*anypb.Any{"foo": wrappedCustomFilterOldTypedStructConfig}),
 			wantUpdate: goodUpdateWithFilterConfigs(map[string]httpfilter.FilterConfig{"foo": filterConfig{Override: customFilterOldTypedStructConfig}}),
 		},
 		{
 			name:       "good-route-config-with-http-filter-config-in-new-typed-struct",
-			rc:         goodRouteConfigWithFilterConfigs(map[string]*anypb.Any{"foo": testutils.MarshalAny(t, customFilterNewTypedStructConfig)}),
+			rc:         goodRouteConfigWithFilterConfigs(map[string]*anypb.Any{"foo": wrappedCustomFilterNewTypedStructConfig}),
 			wantUpdate: goodUpdateWithFilterConfigs(map[string]httpfilter.FilterConfig{"foo": filterConfig{Override: customFilterNewTypedStructConfig}}),
 		},
 		{
 			name:       "good-route-config-with-optional-http-filter-config",
-			rc:         goodRouteConfigWithFilterConfigs(map[string]*anypb.Any{"foo": wrappedOptionalFilter(t, "custom.filter")}),
+			rc:         goodRouteConfigWithFilterConfigs(map[string]*anypb.Any{"foo": wrappedOptionalFilter("custom.filter")}),
 			wantUpdate: goodUpdateWithFilterConfigs(map[string]httpfilter.FilterConfig{"foo": filterConfig{Override: customFilterConfig}}),
 		},
 		{
@@ -577,7 +590,7 @@ func (s) TestRDSGenerateRDSUpdateFromRouteConfiguration(t *testing.T) {
 		},
 		{
 			name:      "good-route-config-with-http-optional-err-filter-config",
-			rc:        goodRouteConfigWithFilterConfigs(map[string]*anypb.Any{"foo": wrappedOptionalFilter(t, "err.custom.filter")}),
+			rc:        goodRouteConfigWithFilterConfigs(map[string]*anypb.Any{"foo": wrappedOptionalFilter("err.custom.filter")}),
 			wantError: true,
 		},
 		{
@@ -587,12 +600,12 @@ func (s) TestRDSGenerateRDSUpdateFromRouteConfiguration(t *testing.T) {
 		},
 		{
 			name:       "good-route-config-with-http-optional-unknown-filter-config",
-			rc:         goodRouteConfigWithFilterConfigs(map[string]*anypb.Any{"foo": wrappedOptionalFilter(t, "unknown.custom.filter")}),
+			rc:         goodRouteConfigWithFilterConfigs(map[string]*anypb.Any{"foo": wrappedOptionalFilter("unknown.custom.filter")}),
 			wantUpdate: goodUpdateWithFilterConfigs(nil),
 		},
 		{
 			name: "good-route-config-with-bad-rbac-http-filter-configuration",
-			rc: goodRouteConfigWithFilterConfigs(map[string]*anypb.Any{"rbac": testutils.MarshalAny(t, &v3rbacpb.RBACPerRoute{Rbac: &v3rbacpb.RBAC{
+			rc: goodRouteConfigWithFilterConfigs(map[string]*anypb.Any{"rbac": testutils.MarshalAny(&v3rbacpb.RBACPerRoute{Rbac: &v3rbacpb.RBAC{
 				Rules: &rpb.RBAC{
 					Action: rpb.RBAC_ALLOW,
 					Policies: map[string]*rpb.Policy{
@@ -656,21 +669,24 @@ func (s) TestRDSGenerateRDSUpdateFromRouteConfiguration(t *testing.T) {
 			rc: goodRouteConfigWithClusterSpecifierPlugins([]*v3routepb.ClusterSpecifierPlugin{
 				clusterSpecifierPlugin("cspA", configOfClusterSpecifierDoesntExist, false),
 			}, []string{"cspA"}),
-			wantError: true,
+			wantError:  true,
+			rlsEnabled: true,
 		},
 		{
 			name: "error-in-cluster-specifier-plugin-conversion-method",
 			rc: goodRouteConfigWithClusterSpecifierPlugins([]*v3routepb.ClusterSpecifierPlugin{
 				clusterSpecifierPlugin("cspA", errorClusterSpecifierConfig, false),
 			}, []string{"cspA"}),
-			wantError: true,
+			wantError:  true,
+			rlsEnabled: true,
 		},
 		{
 			name: "route-action-that-references-undeclared-cluster-specifier-plugin",
 			rc: goodRouteConfigWithClusterSpecifierPlugins([]*v3routepb.ClusterSpecifierPlugin{
 				clusterSpecifierPlugin("cspA", mockClusterSpecifierConfig, false),
 			}, []string{"cspA", "cspB"}),
-			wantError: true,
+			wantError:  true,
+			rlsEnabled: true,
 		},
 		{
 			name: "emitted-cluster-specifier-plugins",
@@ -678,6 +694,7 @@ func (s) TestRDSGenerateRDSUpdateFromRouteConfiguration(t *testing.T) {
 				clusterSpecifierPlugin("cspA", mockClusterSpecifierConfig, false),
 			}, []string{"cspA"}),
 			wantUpdate: goodUpdateWithClusterSpecifierPluginA,
+			rlsEnabled: true,
 		},
 		{
 			name: "deleted-cluster-specifier-plugins-not-referenced",
@@ -686,6 +703,21 @@ func (s) TestRDSGenerateRDSUpdateFromRouteConfiguration(t *testing.T) {
 				clusterSpecifierPlugin("cspB", mockClusterSpecifierConfig, false),
 			}, []string{"cspA"}),
 			wantUpdate: goodUpdateWithClusterSpecifierPluginA,
+			rlsEnabled: true,
+		},
+		{
+			name: "ignore-error-in-cluster-specifier-plugin-env-var-off",
+			rc: goodRouteConfigWithClusterSpecifierPlugins([]*v3routepb.ClusterSpecifierPlugin{
+				clusterSpecifierPlugin("cspA", configOfClusterSpecifierDoesntExist, false),
+			}, []string{}),
+			wantUpdate: goodUpdate,
+		},
+		{
+			name: "cluster-specifier-plugin-referenced-env-var-off",
+			rc: goodRouteConfigWithClusterSpecifierPlugins([]*v3routepb.ClusterSpecifierPlugin{
+				clusterSpecifierPlugin("cspA", mockClusterSpecifierConfig, false),
+			}, []string{"cspA"}),
+			wantUpdate: goodUpdate,
 		},
 		// This tests a scenario where a cluster specifier plugin is not found
 		// and is optional. Any routes referencing that not found optional
@@ -697,6 +729,7 @@ func (s) TestRDSGenerateRDSUpdateFromRouteConfiguration(t *testing.T) {
 				clusterSpecifierPlugin("cspA", configOfClusterSpecifierDoesntExist, true),
 			}, []string{"cspA"}),
 			wantUpdate: goodUpdateWithNormalRoute,
+			rlsEnabled: true,
 		},
 		// This tests a scenario where a route has an unsupported cluster
 		// specifier. Any routes with an unsupported cluster specifier should be
@@ -706,10 +739,12 @@ func (s) TestRDSGenerateRDSUpdateFromRouteConfiguration(t *testing.T) {
 			name:       "unsupported-cluster-specifier-route-should-ignore",
 			rc:         goodRouteConfigWithUnsupportedClusterSpecifier,
 			wantUpdate: goodUpdateWithNormalRoute,
+			rlsEnabled: true,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			envconfig.XDSRLS = test.rlsEnabled
 			gotUpdate, gotError := generateRDSUpdateFromRouteConfiguration(test.rc)
 			if (gotError != nil) != test.wantError ||
 				!cmp.Equal(gotUpdate, test.wantUpdate, cmpopts.EquateEmpty(),
@@ -801,7 +836,7 @@ func (s) TestUnmarshalRouteConfig(t *testing.T) {
 				},
 			},
 		}
-		v3RouteConfig = testutils.MarshalAny(t, &v3routepb.RouteConfiguration{
+		v3RouteConfig = testutils.MarshalAny(&v3routepb.RouteConfiguration{
 			Name:         v3RouteConfigName,
 			VirtualHosts: v3VirtualHost,
 		})
@@ -851,7 +886,7 @@ func (s) TestUnmarshalRouteConfig(t *testing.T) {
 		},
 		{
 			name:     "v3 routeConfig resource wrapped",
-			resource: testutils.MarshalAny(t, &v3discoverypb.Resource{Resource: v3RouteConfig}),
+			resource: testutils.MarshalAny(&v3discoverypb.Resource{Resource: v3RouteConfig}),
 			wantName: v3RouteConfigName,
 			wantUpdate: RouteConfigUpdate{
 				VirtualHosts: []*VirtualHost{
@@ -1436,12 +1471,12 @@ func (s) TestRoutesProtoToSlice(t *testing.T) {
 		},
 		{
 			name:       "with custom HTTP filter config in typed struct",
-			routes:     goodRouteWithFilterConfigs(map[string]*anypb.Any{"foo": testutils.MarshalAny(t, customFilterOldTypedStructConfig)}),
+			routes:     goodRouteWithFilterConfigs(map[string]*anypb.Any{"foo": wrappedCustomFilterOldTypedStructConfig}),
 			wantRoutes: goodUpdateWithFilterConfigs(map[string]httpfilter.FilterConfig{"foo": filterConfig{Override: customFilterOldTypedStructConfig}}),
 		},
 		{
 			name:       "with optional custom HTTP filter config",
-			routes:     goodRouteWithFilterConfigs(map[string]*anypb.Any{"foo": wrappedOptionalFilter(t, "custom.filter")}),
+			routes:     goodRouteWithFilterConfigs(map[string]*anypb.Any{"foo": wrappedOptionalFilter("custom.filter")}),
 			wantRoutes: goodUpdateWithFilterConfigs(map[string]httpfilter.FilterConfig{"foo": filterConfig{Override: customFilterConfig}}),
 		},
 		{
@@ -1451,7 +1486,7 @@ func (s) TestRoutesProtoToSlice(t *testing.T) {
 		},
 		{
 			name:    "with optional erroring custom HTTP filter config",
-			routes:  goodRouteWithFilterConfigs(map[string]*anypb.Any{"foo": wrappedOptionalFilter(t, "err.custom.filter")}),
+			routes:  goodRouteWithFilterConfigs(map[string]*anypb.Any{"foo": wrappedOptionalFilter("err.custom.filter")}),
 			wantErr: true,
 		},
 		{
@@ -1461,7 +1496,7 @@ func (s) TestRoutesProtoToSlice(t *testing.T) {
 		},
 		{
 			name:       "with optional unknown custom HTTP filter config",
-			routes:     goodRouteWithFilterConfigs(map[string]*anypb.Any{"foo": wrappedOptionalFilter(t, "unknown.custom.filter")}),
+			routes:     goodRouteWithFilterConfigs(map[string]*anypb.Any{"foo": wrappedOptionalFilter("unknown.custom.filter")}),
 			wantRoutes: goodUpdateWithFilterConfigs(nil),
 		},
 	}
@@ -1473,6 +1508,9 @@ func (s) TestRoutesProtoToSlice(t *testing.T) {
 			return fmt.Sprint(fc)
 		}),
 	}
+	oldRingHashSupport := envconfig.XDSRingHash
+	envconfig.XDSRingHash = true
+	defer func() { envconfig.XDSRingHash = oldRingHashSupport }()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, _, err := routesProtoToSlice(tt.routes, nil)
@@ -1583,6 +1621,9 @@ func (s) TestHashPoliciesProtoToSlice(t *testing.T) {
 		},
 	}
 
+	oldRingHashSupport := envconfig.XDSRingHash
+	envconfig.XDSRingHash = true
+	defer func() { envconfig.XDSRingHash = oldRingHashSupport }()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := hashPoliciesProtoToSlice(tt.hashPolicies)

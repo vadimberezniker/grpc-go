@@ -440,7 +440,7 @@ func (s) TestServeSuccess(t *testing.T) {
 	host, port := hostPortFromListener(t, lis)
 	resources := e2e.UpdateOptions{
 		NodeID:    nodeID,
-		Listeners: []*v3listenerpb.Listener{e2e.DefaultServerListener(host, port, e2e.SecurityLevelNone, "routeName")},
+		Listeners: []*v3listenerpb.Listener{e2e.DefaultServerListener(host, port, e2e.SecurityLevelNone)},
 	}
 	if err := mgmtServer.Update(ctx, resources); err != nil {
 		t.Fatal(err)
@@ -647,7 +647,7 @@ func (s) TestHandleListenerUpdate_NoXDSCreds(t *testing.T) {
 	host, port := hostPortFromListener(t, lis)
 	resources := e2e.UpdateOptions{
 		NodeID:    nodeID,
-		Listeners: []*v3listenerpb.Listener{e2e.DefaultServerListener(host, port, e2e.SecurityLevelMTLS, "routeName")},
+		Listeners: []*v3listenerpb.Listener{e2e.DefaultServerListener(host, port, e2e.SecurityLevelMTLS)},
 	}
 	if err := mgmtServer.Update(ctx, resources); err != nil {
 		t.Fatal(err)
@@ -731,7 +731,7 @@ func (s) TestHandleListenerUpdate_ErrorUpdate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTestTimeout)
 	defer cancel()
 	host, port := hostPortFromListener(t, lis)
-	listener := e2e.DefaultServerListener(host, port, e2e.SecurityLevelMTLS, "routeName")
+	listener := e2e.DefaultServerListener(host, port, e2e.SecurityLevelMTLS)
 	listener.ListenerFilters = []*v3listenerpb.ListenerFilter{{Name: "foo"}}
 	resources := e2e.UpdateOptions{
 		NodeID:    nodeID,

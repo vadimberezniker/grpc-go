@@ -29,6 +29,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/google/uuid"
+	"google.golang.org/grpc/internal/envconfig"
 	"google.golang.org/grpc/internal/grpcsync"
 	"google.golang.org/grpc/internal/grpctest"
 	"google.golang.org/grpc/internal/testutils"
@@ -47,6 +48,12 @@ import (
 	_ "google.golang.org/grpc/xds"                            // To ensure internal.NewXDSResolverWithConfigForTesting is set.
 	_ "google.golang.org/grpc/xds/internal/httpfilter/router" // Register the router filter.
 )
+
+func overrideFedEnvVar(t *testing.T) {
+	oldFed := envconfig.XDSFederation
+	envconfig.XDSFederation = true
+	t.Cleanup(func() { envconfig.XDSFederation = oldFed })
+}
 
 type s struct {
 	grpctest.Tester
@@ -75,8 +82,8 @@ const (
 // badListenerResource returns a listener resource for the given name which does
 // not contain the `RouteSpecifier` field in the HTTPConnectionManager, and
 // hence is expected to be NACKed by the client.
-func badListenerResource(t *testing.T, name string) *v3listenerpb.Listener {
-	hcm := testutils.MarshalAny(t, &v3httppb.HttpConnectionManager{
+func badListenerResource(name string) *v3listenerpb.Listener {
+	hcm := testutils.MarshalAny(&v3httppb.HttpConnectionManager{
 		HttpFilters: []*v3httppb.HttpFilter{e2e.HTTPFilter("router", &v3routerpb.Router{})},
 	})
 	return &v3listenerpb.Listener{
@@ -187,6 +194,7 @@ func (s) TestLDSWatch(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
+			overrideFedEnvVar(t)
 			mgmtServer, nodeID, bootstrapContents, _, cleanup := e2e.SetupManagementServer(t, e2e.ManagementServerOptions{})
 			defer cleanup()
 
@@ -316,6 +324,7 @@ func (s) TestLDSWatch_TwoWatchesForSameResourceName(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
+			overrideFedEnvVar(t)
 			mgmtServer, nodeID, bootstrapContents, _, cleanup := e2e.SetupManagementServer(t, e2e.ManagementServerOptions{})
 			defer cleanup()
 
@@ -401,6 +410,7 @@ func (s) TestLDSWatch_TwoWatchesForSameResourceName(t *testing.T) {
 //
 // The test is run with both old and new style names.
 func (s) TestLDSWatch_ThreeWatchesForDifferentResourceNames(t *testing.T) {
+	overrideFedEnvVar(t)
 	mgmtServer, nodeID, bootstrapContents, _, cleanup := e2e.SetupManagementServer(t, e2e.ManagementServerOptions{})
 	defer cleanup()
 
@@ -472,6 +482,7 @@ func (s) TestLDSWatch_ThreeWatchesForDifferentResourceNames(t *testing.T) {
 // watch callback is invoked with the contents from the cache, instead of a
 // request being sent to the management server.
 func (s) TestLDSWatch_ResourceCaching(t *testing.T) {
+	overrideFedEnvVar(t)
 	firstRequestReceived := false
 	firstAckReceived := grpcsync.NewEvent()
 	secondRequestReceived := grpcsync.NewEvent()
@@ -564,6 +575,7 @@ func (s) TestLDSWatch_ResourceCaching(t *testing.T) {
 // verifies that the watch callback is invoked with an error once the
 // watchExpiryTimer fires.
 func (s) TestLDSWatch_ExpiryTimerFiresBeforeResponse(t *testing.T) {
+	overrideFedEnvVar(t)
 	mgmtServer, err := e2e.StartManagementServer(e2e.ManagementServerOptions{})
 	if err != nil {
 		t.Fatalf("Failed to spin up the xDS management server: %v", err)
@@ -604,6 +616,7 @@ func (s) TestLDSWatch_ExpiryTimerFiresBeforeResponse(t *testing.T) {
 // verifies that the behavior associated with the expiry timer (i.e, callback
 // invocation with error) does not take place.
 func (s) TestLDSWatch_ValidResponseCancelsExpiryTimerBehavior(t *testing.T) {
+	overrideFedEnvVar(t)
 	mgmtServer, err := e2e.StartManagementServer(e2e.ManagementServerOptions{})
 	if err != nil {
 		t.Fatalf("Failed to spin up the xDS management server: %v", err)
@@ -673,6 +686,7 @@ func (s) TestLDSWatch_ValidResponseCancelsExpiryTimerBehavior(t *testing.T) {
 //
 // The test is run with both old and new style names.
 func (s) TestLDSWatch_ResourceRemoved(t *testing.T) {
+	overrideFedEnvVar(t)
 	mgmtServer, nodeID, bootstrapContents, _, cleanup := e2e.SetupManagementServer(t, e2e.ManagementServerOptions{})
 	defer cleanup()
 
@@ -780,6 +794,7 @@ func (s) TestLDSWatch_ResourceRemoved(t *testing.T) {
 // server is NACK'ed by the xdsclient. The test verifies that the error is
 // propagated to the watcher.
 func (s) TestLDSWatch_NACKError(t *testing.T) {
+	overrideFedEnvVar(t)
 	mgmtServer, nodeID, bootstrapContents, _, cleanup := e2e.SetupManagementServer(t, e2e.ManagementServerOptions{})
 	defer cleanup()
 
@@ -804,7 +819,7 @@ func (s) TestLDSWatch_NACKError(t *testing.T) {
 	// which is expected to be NACKed by the client.
 	resources := e2e.UpdateOptions{
 		NodeID:         nodeID,
-		Listeners:      []*v3listenerpb.Listener{badListenerResource(t, ldsName)},
+		Listeners:      []*v3listenerpb.Listener{badListenerResource(ldsName)},
 		SkipValidation: true,
 	}
 	if err := mgmtServer.Update(ctx, resources); err != nil {
@@ -828,6 +843,7 @@ func (s) TestLDSWatch_NACKError(t *testing.T) {
 // to the valid resource receive the update, while watchers corresponding to the
 // invalid resource receive an error.
 func (s) TestLDSWatch_PartialValid(t *testing.T) {
+	overrideFedEnvVar(t)
 	mgmtServer, nodeID, bootstrapContents, _, cleanup := e2e.SetupManagementServer(t, e2e.ManagementServerOptions{})
 	defer cleanup()
 
@@ -861,7 +877,7 @@ func (s) TestLDSWatch_PartialValid(t *testing.T) {
 	resources := e2e.UpdateOptions{
 		NodeID: nodeID,
 		Listeners: []*v3listenerpb.Listener{
-			badListenerResource(t, badResourceName),
+			badListenerResource(badResourceName),
 			e2e.DefaultClientListener(goodResourceName, rdsName),
 		},
 		SkipValidation: true,
@@ -902,6 +918,7 @@ func (s) TestLDSWatch_PartialValid(t *testing.T) {
 // expected to wait for the watch timeout to expire before concluding that the
 // resource does not exist on the server
 func (s) TestLDSWatch_PartialResponse(t *testing.T) {
+	overrideFedEnvVar(t)
 	mgmtServer, nodeID, bootstrapContents, _, cleanup := e2e.SetupManagementServer(t, e2e.ManagementServerOptions{})
 	defer cleanup()
 

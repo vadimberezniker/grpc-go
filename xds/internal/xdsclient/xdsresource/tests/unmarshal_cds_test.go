@@ -68,13 +68,13 @@ const (
 
 var emptyUpdate = xdsresource.ClusterUpdate{ClusterName: clusterName, LRSServerConfig: xdsresource.ClusterLRSOff}
 
-func wrrLocality(t *testing.T, m proto.Message) *v3wrrlocalitypb.WrrLocality {
+func wrrLocality(m proto.Message) *v3wrrlocalitypb.WrrLocality {
 	return &v3wrrlocalitypb.WrrLocality{
 		EndpointPickingPolicy: &v3clusterpb.LoadBalancingPolicy{
 			Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 				{
 					TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-						TypedConfig: testutils.MarshalAny(t, m),
+						TypedConfig: testutils.MarshalAny(m),
 					},
 				},
 			},
@@ -82,8 +82,8 @@ func wrrLocality(t *testing.T, m proto.Message) *v3wrrlocalitypb.WrrLocality {
 	}
 }
 
-func wrrLocalityAny(t *testing.T, m proto.Message) *anypb.Any {
-	return testutils.MarshalAny(t, wrrLocality(t, m))
+func wrrLocalityAny(m proto.Message) *anypb.Any {
+	return testutils.MarshalAny(wrrLocality(m))
 }
 
 type customLBConfig struct {
@@ -100,13 +100,19 @@ func (s) TestValidateCluster_Success(t *testing.T) {
 		},
 	})
 
+	origCustomLBSupport := envconfig.XDSCustomLBPolicy
+	envconfig.XDSCustomLBPolicy = true
+	defer func() {
+		envconfig.XDSCustomLBPolicy = origCustomLBSupport
+	}()
 	defer func(old bool) { envconfig.LeastRequestLB = old }(envconfig.LeastRequestLB)
 	envconfig.LeastRequestLB = true
 	tests := []struct {
-		name         string
-		cluster      *v3clusterpb.Cluster
-		wantUpdate   xdsresource.ClusterUpdate
-		wantLBConfig *iserviceconfig.BalancerConfig
+		name             string
+		cluster          *v3clusterpb.Cluster
+		wantUpdate       xdsresource.ClusterUpdate
+		wantLBConfig     *iserviceconfig.BalancerConfig
+		customLBDisabled bool
 	}{
 		{
 			name: "happy-case-logical-dns",
@@ -156,7 +162,7 @@ func (s) TestValidateCluster_Success(t *testing.T) {
 				ClusterDiscoveryType: &v3clusterpb.Cluster_ClusterType{
 					ClusterType: &v3clusterpb.Cluster_CustomClusterType{
 						Name: "envoy.clusters.aggregate",
-						TypedConfig: testutils.MarshalAny(t, &v3aggregateclusterpb.ClusterConfig{
+						TypedConfig: testutils.MarshalAny(&v3aggregateclusterpb.ClusterConfig{
 							Clusters: []string{"a", "b", "c"},
 						}),
 					},
@@ -379,7 +385,7 @@ func (s) TestValidateCluster_Success(t *testing.T) {
 					Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 						{
 							TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-								TypedConfig: testutils.MarshalAny(t, &v3ringhashpb.RingHash{
+								TypedConfig: testutils.MarshalAny(&v3ringhashpb.RingHash{
 									HashFunction:    v3ringhashpb.RingHash_XX_HASH,
 									MinimumRingSize: wrapperspb.UInt64(10),
 									MaximumRingSize: wrapperspb.UInt64(100),
@@ -418,7 +424,7 @@ func (s) TestValidateCluster_Success(t *testing.T) {
 					Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 						{
 							TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-								TypedConfig: wrrLocalityAny(t, &v3roundrobinpb.RoundRobin{}),
+								TypedConfig: wrrLocalityAny(&v3roundrobinpb.RoundRobin{}),
 							},
 						},
 					},
@@ -454,7 +460,7 @@ func (s) TestValidateCluster_Success(t *testing.T) {
 					Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 						{
 							TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-								TypedConfig: wrrLocalityAny(t, &v3xdsxdstypepb.TypedStruct{
+								TypedConfig: wrrLocalityAny(&v3xdsxdstypepb.TypedStruct{
 									TypeUrl: "type.googleapis.com/myorg.MyCustomLeastRequestPolicy",
 									Value:   &structpb.Struct{},
 								}),
@@ -476,6 +482,53 @@ func (s) TestValidateCluster_Success(t *testing.T) {
 					},
 				},
 			},
+		},
+		{
+			name: "custom-lb-env-var-not-set-ignore-load-balancing-policy-use-lb-policy-and-enum",
+			cluster: &v3clusterpb.Cluster{
+				Name:                 clusterName,
+				ClusterDiscoveryType: &v3clusterpb.Cluster_Type{Type: v3clusterpb.Cluster_EDS},
+				EdsClusterConfig: &v3clusterpb.Cluster_EdsClusterConfig{
+					EdsConfig: &v3corepb.ConfigSource{
+						ConfigSourceSpecifier: &v3corepb.ConfigSource_Ads{
+							Ads: &v3corepb.AggregatedConfigSource{},
+						},
+					},
+					ServiceName: serviceName,
+				},
+				LbPolicy: v3clusterpb.Cluster_RING_HASH,
+				LbConfig: &v3clusterpb.Cluster_RingHashLbConfig_{
+					RingHashLbConfig: &v3clusterpb.Cluster_RingHashLbConfig{
+						MinimumRingSize: wrapperspb.UInt64(20),
+						MaximumRingSize: wrapperspb.UInt64(200),
+					},
+				},
+				LoadBalancingPolicy: &v3clusterpb.LoadBalancingPolicy{
+					Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
+						{
+							TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
+								TypedConfig: testutils.MarshalAny(&v3ringhashpb.RingHash{
+									HashFunction:    v3ringhashpb.RingHash_XX_HASH,
+									MinimumRingSize: wrapperspb.UInt64(10),
+									MaximumRingSize: wrapperspb.UInt64(100),
+								}),
+							},
+						},
+					},
+				},
+			},
+			wantUpdate: xdsresource.ClusterUpdate{
+				ClusterName:    clusterName,
+				EDSServiceName: serviceName,
+			},
+			wantLBConfig: &iserviceconfig.BalancerConfig{
+				Name: "ring_hash_experimental",
+				Config: &ringhash.LBConfig{
+					MinRingSize: 20,
+					MaxRingSize: 200,
+				},
+			},
+			customLBDisabled: true,
 		},
 		{
 			name: "load-balancing-policy-takes-precedence-over-lb-policy-and-enum",
@@ -501,7 +554,7 @@ func (s) TestValidateCluster_Success(t *testing.T) {
 					Policies: []*v3clusterpb.LoadBalancingPolicy_Policy{
 						{
 							TypedExtensionConfig: &v3corepb.TypedExtensionConfig{
-								TypedConfig: testutils.MarshalAny(t, &v3ringhashpb.RingHash{
+								TypedConfig: testutils.MarshalAny(&v3ringhashpb.RingHash{
 									HashFunction:    v3ringhashpb.RingHash_XX_HASH,
 									MinimumRingSize: wrapperspb.UInt64(10),
 									MaximumRingSize: wrapperspb.UInt64(100),
@@ -527,6 +580,12 @@ func (s) TestValidateCluster_Success(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			if test.customLBDisabled {
+				envconfig.XDSCustomLBPolicy = false
+				defer func() {
+					envconfig.XDSCustomLBPolicy = true
+				}()
+			}
 			update, err := xdsresource.ValidateClusterAndConstructClusterUpdateForTesting(test.cluster)
 			if err != nil {
 				t.Errorf("validateClusterAndConstructClusterUpdate(%+v) failed: %v", test.cluster, err)

@@ -116,9 +116,12 @@ func Contents(opts Options) ([]byte, error) {
 		cfg.XdsServers[0].ServerFeatures = append(cfg.XdsServers[0].ServerFeatures, "ignore_resource_deletion")
 	}
 
-	// This will end up using the top-level server list for new style
-	// resources with empty authority.
-	auths := map[string]authority{"": {}}
+	auths := make(map[string]authority)
+	if envconfig.XDSFederation {
+		// This will end up using the top-level server list for new style
+		// resources with empty authority.
+		auths[""] = authority{}
+	}
 	for n, auURI := range opts.Authorities {
 		auths[n] = authority{XdsServers: []server{{
 			ServerURI:      auURI,

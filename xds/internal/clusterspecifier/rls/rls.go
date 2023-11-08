@@ -27,6 +27,7 @@ import (
 	"github.com/golang/protobuf/ptypes"
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/internal"
+	"google.golang.org/grpc/internal/envconfig"
 	rlspb "google.golang.org/grpc/internal/proto/grpc_lookup_v1"
 	"google.golang.org/grpc/xds/internal/clusterspecifier"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -34,7 +35,9 @@ import (
 )
 
 func init() {
-	clusterspecifier.Register(rls{})
+	if envconfig.XDSRLS {
+		clusterspecifier.Register(rls{})
+	}
 
 	// TODO: Remove these once the RLS env var is removed.
 	internal.RegisterRLSClusterSpecifierPluginForTesting = func() {

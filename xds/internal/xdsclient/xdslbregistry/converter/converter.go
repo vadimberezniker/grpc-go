@@ -67,6 +67,9 @@ const (
 )
 
 func convertRingHashProtoToServiceConfig(rawProto []byte, _ int) (json.RawMessage, error) {
+	if !envconfig.XDSRingHash {
+		return nil, nil
+	}
 	rhProto := &v3ringhashpb.RingHash{}
 	if err := proto.Unmarshal(rawProto, rhProto); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal resource: %v", err)
@@ -100,6 +103,9 @@ type pfConfig struct {
 }
 
 func convertPickFirstProtoToServiceConfig(rawProto []byte, _ int) (json.RawMessage, error) {
+	if !envconfig.PickFirstLBConfig {
+		return nil, nil
+	}
 	pfProto := &v3pickfirstpb.PickFirst{}
 	if err := proto.Unmarshal(rawProto, pfProto); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal resource: %v", err)
