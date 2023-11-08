@@ -411,9 +411,10 @@ const LogTraceHeader = "x-buildbuddy-log-trace-id"
 // Logs are enriched with information from the context
 // (e.g. invocation_id, request_id)
 func CtxTracef(ctx context.Context, format string, args ...interface{}) {
-	if _, ok := ctx.Value(LogTraceHeader).(string); ok {
+	if v, ok := ctx.Value(LogTraceHeader).(string); ok {
 		e := log.Info()
 		enrichEventFromContext(ctx, e)
-		e.Msgf(format, args...)
+		args = append([]interface{}{v}, args...)
+		e.Msgf("[%s] "+format, args...)
 	}
 }
