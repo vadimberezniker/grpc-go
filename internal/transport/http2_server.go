@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	rand "math/rand/v2"
 	"net"
@@ -1142,6 +1143,15 @@ func (t *http2Server) writeStatus(s *ServerStream, st *status.Status) error {
 		})
 	}
 	return nil
+}
+
+func (t *http2Server) enableTracing(s *ServerStream) {
+	if s.getState() == streamDone {
+		return
+	}
+	if err := t.controlBuf.put(&traceStream{streamID: s.id}); err != nil {
+		log.Printf("VVVVV failed to enable tracing for %d: %v\n", s.id, err)
+	}
 }
 
 // Write converts the data into HTTP2 data frame and sends it out. Non-nil error

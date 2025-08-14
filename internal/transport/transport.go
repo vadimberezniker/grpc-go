@@ -611,6 +611,7 @@ type ServerTransport interface {
 
 type internalServerTransport interface {
 	ServerTransport
+	enableTracing(s *ServerStream)
 	writeHeader(s *ServerStream, md metadata.MD) error
 	write(s *ServerStream, hdr []byte, data mem.BufferSlice, opts *WriteOptions) error
 	writeStatus(s *ServerStream, st *status.Status) error
