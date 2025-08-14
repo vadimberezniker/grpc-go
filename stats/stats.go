@@ -227,6 +227,10 @@ type End struct {
 	BeginTime time.Time
 	// EndTime is the time when the RPC ends.
 	EndTime time.Time
+
+	ReadRequestDuration  time.Duration
+	SendResponseDuration time.Duration
+
 	// Trailer contains the trailer metadata received from the server. This
 	// field is only valid if this End is from the client side.
 	// Deprecated: use Trailer in InTrailer instead.
