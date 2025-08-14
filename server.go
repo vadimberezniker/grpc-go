@@ -1245,6 +1245,9 @@ func getChainUnaryHandler(interceptors []UnaryServerInterceptor, curr int, info 
 }
 
 func (s *Server) processUnaryRPC(ctx context.Context, stream *transport.ServerStream, info *serviceInfo, md *MethodDesc, trInfo *traceInfo) (err error) {
+	var readRequestDuration time.Duration
+	var sendResponseDuration time.Duration
+
 	shs := s.opts.statsHandlers
 	if len(shs) != 0 || trInfo != nil || channelz.IsOn() {
 		if channelz.IsOn() {
@@ -1284,8 +1287,10 @@ func (s *Server) processUnaryRPC(ctx context.Context, stream *transport.ServerSt
 
 			for _, sh := range shs {
 				end := &stats.End{
-					BeginTime: statsBegin.BeginTime,
-					EndTime:   time.Now(),
+					BeginTime:            statsBegin.BeginTime,
+					EndTime:              time.Now(),
+					ReadRequestDuration:  readRequestDuration,
+					SendResponseDuration: sendResponseDuration,
 				}
 				if err != nil && err != io.EOF {
 					end.Error = toRPCErr(err)
@@ -1384,6 +1389,7 @@ func (s *Server) processUnaryRPC(ctx context.Context, stream *transport.ServerSt
 		defer payInfo.free()
 	}
 
+	recvStart := time.Now()
 	d, err := recvAndDecompress(&parser{r: stream, bufferPool: s.opts.bufferPool}, stream, dc, s.opts.maxReceiveMessageSize, payInfo, decomp, true)
 	if err != nil {
 		if e := stream.WriteStatus(status.Convert(err)); e != nil {
@@ -1391,6 +1397,7 @@ func (s *Server) processUnaryRPC(ctx context.Context, stream *transport.ServerSt
 		}
 		return err
 	}
+	readRequestDuration = time.Since(recvStart)
 	freed := false
 	dataFree := func() {
 		if !freed {
@@ -1475,6 +1482,7 @@ func (s *Server) processUnaryRPC(ctx context.Context, stream *transport.ServerSt
 	if stream.SendCompress() != sendCompressorName {
 		comp = encoding.GetCompressor(stream.SendCompress())
 	}
+	sendStart := time.Now()
 	if err := s.sendResponse(ctx, stream, reply, cp, opts, comp); err != nil {
 		if err == io.EOF {
 			// The entire stream is done (for unary RPC only).
@@ -1508,6 +1516,7 @@ func (s *Server) processUnaryRPC(ctx context.Context, stream *transport.ServerSt
 		}
 		return err
 	}
+	sendResponseDuration = time.Since(sendStart)
 	if len(binlogs) != 0 {
 		h, _ := stream.Header()
 		sh := &binarylog.ServerHeader{
