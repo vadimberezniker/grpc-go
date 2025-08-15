@@ -1092,8 +1092,14 @@ func (l *loopyWriter) processData() (bool, error) {
 		if err := l.writeHeader(trailer.streamID, trailer.endStream, trailer.hf, trailer.onWrite); err != nil {
 			return false, err
 		}
+		if trace {
+			log.Printf("VVVVV stream %d clean up", dataItem.streamID)
+		}
 		if err := l.cleanupStreamHandler(trailer.cleanup); err != nil {
 			return false, err
+		}
+		if trace {
+			log.Printf("VVVVV stream %d clean up done", dataItem.streamID)
 		}
 	} else if int(l.oiws)-str.bytesOutStanding <= 0 { // Ran out of stream quota.
 		if trace {
