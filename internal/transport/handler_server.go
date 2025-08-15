@@ -176,6 +176,8 @@ type serverHandlerTransport struct {
 	bufferPool mem.BufferPool
 }
 
+func (ht *serverHandlerTransport) enableTracing(s *ServerStream) {}
+
 func (ht *serverHandlerTransport) Close(err error) {
 	ht.closeOnce.Do(func() {
 		if ht.logger.V(logLevel) {

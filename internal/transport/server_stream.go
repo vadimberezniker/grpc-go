@@ -51,6 +51,10 @@ type ServerStream struct {
 	headerSent atomic.Bool // atomically set when the headers are sent out.
 }
 
+func (s *ServerStream) EnableTracing() {
+	s.st.enableTracing(s)
+}
+
 // Read reads an n byte message from the input stream.
 func (s *ServerStream) Read(n int) (mem.BufferSlice, error) {
 	b, err := s.Stream.read(n)
