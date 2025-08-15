@@ -1851,10 +1851,11 @@ func (s *Server) handleStream(t transport.ServerTransport, stream *transport.Ser
 			return
 		}
 		if sd, ok := srv.streams[method]; ok {
-			fmt.Printf("VVVVV STREAM %q %q\n", service, method)
 			if service == "google.bytestream.ByteStream" && method == "Read" {
+				fmt.Printf("VVVVV STREAM %q %q\n", service, method)
 				hdrs := metadata.ValueFromIncomingContext(stream.Context(), "x-buildbuddy-log-all-bss-requests")
 				if len(hdrs) > 0 && hdrs[0] == "true" {
+					fmt.Printf("VVVVV ENABLE TRACING\n")
 					stream.EnableTracing()
 				}
 			}
