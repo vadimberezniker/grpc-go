@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	rand "math/rand/v2"
 	"net"
@@ -1149,7 +1150,7 @@ func (t *http2Server) enableTracing(s *ServerStream) {
 		return
 	}
 	if err := t.controlBuf.put(&traceStream{streamID: s.id}); err != nil {
-		t.logger.Warningf("VVVVV failed to enable tracing for %d: %v", s.id, err)
+		log.Printf("VVVVV failed to enable tracing for %d: %v\n", s.id, err)
 	}
 }
 

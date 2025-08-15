@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"runtime"
 	"strconv"
@@ -684,8 +685,7 @@ func (l *loopyWriter) registerStreamHandler(h *registerStream) {
 }
 
 func (l *loopyWriter) traceStreamHandler(h *traceStream) {
-	fmt.Printf("VVVVV tracing stream %d\n", h.streamID)
-	l.logger.Infof("VVVVV tracing stream via logger %d", h.streamID)
+	log.Printf("VVVVV tracing stream via logger %d\n", h.streamID)
 	if l.tracedStreams == nil {
 		l.tracedStreams = make(map[uint32]struct{})
 	}
@@ -987,7 +987,7 @@ func (l *loopyWriter) processData() (bool, error) {
 
 	if len(dataItem.h) == 0 && reader.Remaining() == 0 { // Empty data frame
 		if trace {
-			l.logger.Infof("VVVVV stream %d send out empty data frame with end stream set", dataItem.streamID)
+			log.Printf("VVVVV stream %d send out empty data frame with end stream set\n", dataItem.streamID)
 		}
 		// Client sends out empty data frame with endStream = true
 		if err := l.framer.fr.WriteData(dataItem.streamID, dataItem.endStream, nil); err != nil {
@@ -999,7 +999,7 @@ func (l *loopyWriter) processData() (bool, error) {
 			str.state = empty
 		} else if trailer, ok := str.itl.peek().(*headerFrame); ok { // the next item is trailers.
 			if trace {
-				l.logger.Infof("VVVVV stream %d send out trailers", dataItem.streamID)
+				log.Printf("VVVVV stream %d send out trailers\n", dataItem.streamID)
 			}
 			if err := l.writeHeader(trailer.streamID, trailer.endStream, trailer.hf, trailer.onWrite); err != nil {
 				return false, err
@@ -1009,7 +1009,7 @@ func (l *loopyWriter) processData() (bool, error) {
 			}
 		} else {
 			if trace {
-				l.logger.Infof("VVVVV stream %d more stuff after empty frame??", dataItem.streamID)
+				log.Printf("VVVVV stream %d more stuff after empty frame??\n", dataItem.streamID)
 			}
 			l.activeStreams.enqueue(str)
 		}
@@ -1066,7 +1066,7 @@ func (l *loopyWriter) processData() (bool, error) {
 	}
 
 	if trace {
-		l.logger.Infof("VVVVV stream %d write %d bytes end stream %t", dataItem.streamID, size, endStream)
+		log.Printf("VVVVV stream %d write %d bytes end stream %t\n", dataItem.streamID, size, endStream)
 	}
 
 	if err := l.framer.fr.WriteData(dataItem.streamID, endStream, (*buf)[:size]); err != nil {
@@ -1083,11 +1083,11 @@ func (l *loopyWriter) processData() (bool, error) {
 	if str.itl.isEmpty() {
 		str.state = empty
 		if trace {
-			l.logger.Infof("VVVVV stream %d queue is empty", dataItem.streamID)
+			log.Printf("VVVVV stream %d queue is empty\n", dataItem.streamID)
 		}
 	} else if trailer, ok := str.itl.peek().(*headerFrame); ok { // The next item is trailers.
 		if trace {
-			l.logger.Infof("VVVVV stream %d write trailers", dataItem.streamID)
+			log.Printf("VVVVV stream %d write trailers\n", dataItem.streamID)
 		}
 		if err := l.writeHeader(trailer.streamID, trailer.endStream, trailer.hf, trailer.onWrite); err != nil {
 			return false, err
@@ -1097,12 +1097,12 @@ func (l *loopyWriter) processData() (bool, error) {
 		}
 	} else if int(l.oiws)-str.bytesOutStanding <= 0 { // Ran out of stream quota.
 		if trace {
-			l.logger.Infof("VVVVV stream %d ran out of stream quota", dataItem.streamID)
+			log.Printf("VVVVV stream %d ran out of stream quota\n", dataItem.streamID)
 		}
 		str.state = waitingOnStreamQuota
 	} else { // Otherwise add it back to the list of active streams.
 		if trace {
-			l.logger.Infof("VVVVV stream %d back of the line", dataItem.streamID)
+			log.Printf("VVVVV stream %d back of the line\n", dataItem.streamID)
 		}
 		l.activeStreams.enqueue(str)
 	}
