@@ -996,6 +996,9 @@ func (l *loopyWriter) processData() (bool, error) {
 		str.itl.dequeue() // remove the empty data item from stream
 		_ = reader.Close()
 		if str.itl.isEmpty() {
+			if trace {
+				log.Printf("VVVVV stream %d queue is empty\n", dataItem.streamID)
+			}
 			str.state = empty
 		} else if trailer, ok := str.itl.peek().(*headerFrame); ok { // the next item is trailers.
 			if trace {
@@ -1004,8 +1007,14 @@ func (l *loopyWriter) processData() (bool, error) {
 			if err := l.writeHeader(trailer.streamID, trailer.endStream, trailer.hf, trailer.onWrite); err != nil {
 				return false, err
 			}
+			if trace {
+				log.Printf("VVVVV stream %d clean up", dataItem.streamID)
+			}
 			if err := l.cleanupStreamHandler(trailer.cleanup); err != nil {
 				return false, err
+			}
+			if trace {
+				log.Printf("VVVVV stream %d clean up done", dataItem.streamID)
 			}
 		} else {
 			if trace {
