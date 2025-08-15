@@ -685,7 +685,10 @@ func (l *loopyWriter) registerStreamHandler(h *registerStream) {
 
 func (l *loopyWriter) traceStreamHandler(h *traceStream) {
 	fmt.Printf("VVVVV tracing stream %d\n", h.streamID)
-	l.logger.Infof("VVVVV tracing stream %d", h.streamID)
+	l.logger.Infof("VVVVV tracing stream via logger %d", h.streamID)
+	if l.tracedStreams == nil {
+		l.tracedStreams = make(map[uint32]struct{})
+	}
 	l.tracedStreams[h.streamID] = struct{}{}
 }
 
