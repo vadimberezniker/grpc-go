@@ -819,6 +819,11 @@ func (l *loopyWriter) outFlowControlSizeRequestHandler(o *outFlowControlSizeRequ
 }
 
 func (l *loopyWriter) cleanupStreamHandler(c *cleanupStream) error {
+	_, trace := l.tracedStreams[c.streamID]
+	if trace {
+		log.Printf("VVVVV stream %d cleanupStreamHandler", c.streamID)
+	}
+
 	c.onWrite()
 	if str, ok := l.estdStreams[c.streamID]; ok {
 		// On the server side it could be a trailers-only response or
@@ -837,6 +842,9 @@ func (l *loopyWriter) cleanupStreamHandler(c *cleanupStream) error {
 		}
 	}
 	if c.rst { // If RST_STREAM needs to be sent.
+		if trace {
+			log.Printf("VVVVV stream %d RST stream", c.streamID)
+		}
 		if err := l.framer.fr.WriteRSTStream(c.streamID, c.rstCode); err != nil {
 			return err
 		}
@@ -844,6 +852,9 @@ func (l *loopyWriter) cleanupStreamHandler(c *cleanupStream) error {
 	if l.draining && len(l.estdStreams) == 0 {
 		// Flush and close the connection; we are done with it.
 		return errors.New("finished processing active streams while in draining mode")
+	}
+	if trace {
+		log.Printf("VVVVV stream %d cleanupStreamHandler done", c.streamID)
 	}
 	return nil
 }
