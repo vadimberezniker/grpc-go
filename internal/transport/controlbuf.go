@@ -20,6 +20,7 @@ package transport
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -34,6 +35,7 @@ import (
 	"google.golang.org/grpc/internal/grpclog"
 	"google.golang.org/grpc/internal/grpcutil"
 	"google.golang.org/grpc/mem"
+	"google.golang.org/grpc/stats"
 	"google.golang.org/grpc/status"
 )
 
@@ -115,6 +117,7 @@ type cbItem interface {
 }
 
 type traceStream struct {
+	ctx      context.Context
 	streamID uint32
 }
 
@@ -523,7 +526,7 @@ type loopyWriter struct {
 	// On client-side, this is all streams whose headers were sent out.
 	// On server-side, this is all streams whose headers were received.
 	estdStreams   map[uint32]*outStream // Established streams.
-	tracedStreams map[uint32]struct{}
+	tracedStreams map[uint32]context.Context
 	// activeStreams is a linked-list of all streams that have data to send and some
 	// stream-level flow control quota.
 	// Each of these streams internally have a list of data items(and perhaps trailers
@@ -537,12 +540,13 @@ type loopyWriter struct {
 	conn          net.Conn
 	logger        *grpclog.PrefixLogger
 	bufferPool    mem.BufferPool
+	statHandlers  []stats.Handler
 
 	// Side-specific handlers
 	ssGoAwayHandler func(*goAway) (bool, error)
 }
 
-func newLoopyWriter(s side, fr *framer, cbuf *controlBuffer, bdpEst *bdpEstimator, conn net.Conn, logger *grpclog.PrefixLogger, goAwayHandler func(*goAway) (bool, error), bufferPool mem.BufferPool) *loopyWriter {
+func newLoopyWriter(s side, fr *framer, cbuf *controlBuffer, bdpEst *bdpEstimator, conn net.Conn, logger *grpclog.PrefixLogger, goAwayHandler func(*goAway) (bool, error), bufferPool mem.BufferPool, statHandlers []stats.Handler) *loopyWriter {
 	var buf bytes.Buffer
 	l := &loopyWriter{
 		side:            s,
@@ -559,6 +563,7 @@ func newLoopyWriter(s side, fr *framer, cbuf *controlBuffer, bdpEst *bdpEstimato
 		logger:          logger,
 		ssGoAwayHandler: goAwayHandler,
 		bufferPool:      bufferPool,
+		statHandlers:    statHandlers,
 	}
 	return l
 }
@@ -687,9 +692,9 @@ func (l *loopyWriter) registerStreamHandler(h *registerStream) {
 func (l *loopyWriter) traceStreamHandler(h *traceStream) {
 	log.Printf("VVVVV tracing stream %d\n", h.streamID)
 	if l.tracedStreams == nil {
-		l.tracedStreams = make(map[uint32]struct{})
+		l.tracedStreams = make(map[uint32]context.Context)
 	}
-	l.tracedStreams[h.streamID] = struct{}{}
+	l.tracedStreams[h.streamID] = h.ctx
 }
 
 func (l *loopyWriter) headerHandler(h *headerFrame) error {
@@ -819,9 +824,14 @@ func (l *loopyWriter) outFlowControlSizeRequestHandler(o *outFlowControlSizeRequ
 }
 
 func (l *loopyWriter) cleanupStreamHandler(c *cleanupStream) error {
-	_, trace := l.tracedStreams[c.streamID]
+	ctx, trace := l.tracedStreams[c.streamID]
+	//if trace {
+	//	log.Printf("VVVVV stream %d cleanupStreamHandler", c.streamID)
+	//}
 	if trace {
-		log.Printf("VVVVV stream %d cleanupStreamHandler", c.streamID)
+		for _, sh := range l.statHandlers {
+			sh.HandleRPC(ctx, &stats.RawStreamEvent{Message: fmt.Sprintf("clean up stream send reset %t reset code %s", c.rst, c.rstCode)})
+		}
 	}
 
 	c.onWrite()
@@ -842,9 +852,9 @@ func (l *loopyWriter) cleanupStreamHandler(c *cleanupStream) error {
 		}
 	}
 	if c.rst { // If RST_STREAM needs to be sent.
-		if trace {
-			log.Printf("VVVVV stream %d RST stream", c.streamID)
-		}
+		//if trace {
+		//	log.Printf("VVVVV stream %d RST stream", c.streamID)
+		//}
 		if err := l.framer.fr.WriteRSTStream(c.streamID, c.rstCode); err != nil {
 			return err
 		}
@@ -853,9 +863,9 @@ func (l *loopyWriter) cleanupStreamHandler(c *cleanupStream) error {
 		// Flush and close the connection; we are done with it.
 		return errors.New("finished processing active streams while in draining mode")
 	}
-	if trace {
-		log.Printf("VVVVV stream %d cleanupStreamHandler done", c.streamID)
-	}
+	//if trace {
+	//	log.Printf("VVVVV stream %d cleanupStreamHandler done", c.streamID)
+	//}
 	return nil
 }
 
@@ -994,12 +1004,12 @@ func (l *loopyWriter) processData() (bool, error) {
 	// from data is copied to h to make as big as the maximum possible HTTP2 frame
 	// size.
 
-	_, trace := l.tracedStreams[dataItem.streamID]
+	ctx, trace := l.tracedStreams[dataItem.streamID]
 
 	if len(dataItem.h) == 0 && reader.Remaining() == 0 { // Empty data frame
-		if trace {
-			log.Printf("VVVVV stream %d send out empty data frame with end stream set\n", dataItem.streamID)
-		}
+		//if trace {
+		//	log.Printf("VVVVV stream %d send out empty data frame with end stream set\n", dataItem.streamID)
+		//}
 		// Client sends out empty data frame with endStream = true
 		if err := l.framer.fr.WriteData(dataItem.streamID, dataItem.endStream, nil); err != nil {
 			return false, err
@@ -1007,30 +1017,30 @@ func (l *loopyWriter) processData() (bool, error) {
 		str.itl.dequeue() // remove the empty data item from stream
 		_ = reader.Close()
 		if str.itl.isEmpty() {
-			if trace {
-				log.Printf("VVVVV stream %d queue is empty\n", dataItem.streamID)
-			}
+			//if trace {
+			//	log.Printf("VVVVV stream %d queue is empty\n", dataItem.streamID)
+			//}
 			str.state = empty
 		} else if trailer, ok := str.itl.peek().(*headerFrame); ok { // the next item is trailers.
-			if trace {
-				log.Printf("VVVVV stream %d send out trailers\n", dataItem.streamID)
-			}
+			//if trace {
+			//	log.Printf("VVVVV stream %d send out trailers\n", dataItem.streamID)
+			//}
 			if err := l.writeHeader(trailer.streamID, trailer.endStream, trailer.hf, trailer.onWrite); err != nil {
 				return false, err
 			}
-			if trace {
-				log.Printf("VVVVV stream %d clean up", dataItem.streamID)
-			}
+			//if trace {
+			//	log.Printf("VVVVV stream %d clean up", dataItem.streamID)
+			//}
 			if err := l.cleanupStreamHandler(trailer.cleanup); err != nil {
 				return false, err
 			}
-			if trace {
-				log.Printf("VVVVV stream %d clean up done", dataItem.streamID)
-			}
+			//if trace {
+			//	log.Printf("VVVVV stream %d clean up done", dataItem.streamID)
+			//}
 		} else {
-			if trace {
-				log.Printf("VVVVV stream %d more stuff after empty frame??\n", dataItem.streamID)
-			}
+			//if trace {
+			//	log.Printf("VVVVV stream %d more stuff after empty frame??\n", dataItem.streamID)
+			//}
 			l.activeStreams.enqueue(str)
 		}
 		return false, nil
@@ -1039,6 +1049,11 @@ func (l *loopyWriter) processData() (bool, error) {
 	// Figure out the maximum size we can send
 	maxSize := http2MaxFrameLen
 	if strQuota := int(l.oiws) - str.bytesOutStanding; strQuota <= 0 { // stream-level flow control.
+		if trace {
+			for _, sh := range l.statHandlers {
+				sh.HandleRPC(ctx, &stats.RawStreamEvent{Message: "waiting on stream quota"})
+			}
+		}
 		str.state = waitingOnStreamQuota
 		return false, nil
 	} else if maxSize > strQuota {
@@ -1085,13 +1100,17 @@ func (l *loopyWriter) processData() (bool, error) {
 		dataItem.onEachWrite()
 	}
 
-	if trace {
-		log.Printf("VVVVV stream %d write %d bytes end stream %t\n", dataItem.streamID, size, endStream)
-	}
-
 	if err := l.framer.fr.WriteData(dataItem.streamID, endStream, (*buf)[:size]); err != nil {
 		return false, err
 	}
+
+	if trace {
+		for _, sh := range l.statHandlers {
+			sh.HandleRPC(ctx, &stats.RawStreamEvent{Message: fmt.Sprintf("wrote %d bytes on http2 stream", size)})
+		}
+		//log.Printf("VVVVV stream %d write %d bytes end stream %t\n", dataItem.streamID, size, endStream)
+	}
+
 	str.bytesOutStanding += size
 	l.sendQuota -= uint32(size)
 	dataItem.h = dataItem.h[hSize:]
@@ -1102,34 +1121,39 @@ func (l *loopyWriter) processData() (bool, error) {
 	}
 	if str.itl.isEmpty() {
 		str.state = empty
-		if trace {
-			log.Printf("VVVVV stream %d queue is empty\n", dataItem.streamID)
-		}
+		//if trace {
+		//	log.Printf("VVVVV stream %d queue is empty\n", dataItem.streamID)
+		//}
 	} else if trailer, ok := str.itl.peek().(*headerFrame); ok { // The next item is trailers.
-		if trace {
-			log.Printf("VVVVV stream %d write trailers\n", dataItem.streamID)
-		}
+		//if trace {
+		//	log.Printf("VVVVV stream %d write trailers\n", dataItem.streamID)
+		//}
 		if err := l.writeHeader(trailer.streamID, trailer.endStream, trailer.hf, trailer.onWrite); err != nil {
 			return false, err
 		}
-		if trace {
-			log.Printf("VVVVV stream %d clean up", dataItem.streamID)
-		}
+		//if trace {
+		//	log.Printf("VVVVV stream %d clean up", dataItem.streamID)
+		//}
 		if err := l.cleanupStreamHandler(trailer.cleanup); err != nil {
 			return false, err
 		}
-		if trace {
-			log.Printf("VVVVV stream %d clean up done", dataItem.streamID)
-		}
+		//if trace {
+		//	log.Printf("VVVVV stream %d clean up done", dataItem.streamID)
+		//}
 	} else if int(l.oiws)-str.bytesOutStanding <= 0 { // Ran out of stream quota.
 		if trace {
-			log.Printf("VVVVV stream %d ran out of stream quota\n", dataItem.streamID)
+			for _, sh := range l.statHandlers {
+				sh.HandleRPC(ctx, &stats.RawStreamEvent{Message: "waiting on stream quota"})
+			}
 		}
+		//if trace {
+		//	log.Printf("VVVVV stream %d ran out of stream quota\n", dataItem.streamID)
+		//}
 		str.state = waitingOnStreamQuota
 	} else { // Otherwise add it back to the list of active streams.
-		if trace {
-			log.Printf("VVVVV stream %d back of the line\n", dataItem.streamID)
-		}
+		//if trace {
+		//	log.Printf("VVVVV stream %d back of the line\n", dataItem.streamID)
+		//}
 		l.activeStreams.enqueue(str)
 	}
 	return false, nil

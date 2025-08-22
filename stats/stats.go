@@ -271,6 +271,14 @@ func (s *ConnEnd) IsClient() bool { return s.Client }
 
 func (s *ConnEnd) isConnStats() {}
 
+type RawStreamEvent struct {
+	Message string
+}
+
+func (r *RawStreamEvent) isRPCStats() {}
+
+func (r *RawStreamEvent) IsClient() bool { return false }
+
 // SetTags attaches stats tagging data to the context, which will be sent in
 // the outgoing RPC with the header grpc-tags-bin.  Subsequent calls to
 // SetTags will overwrite the values from earlier calls.

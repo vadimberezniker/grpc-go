@@ -1835,19 +1835,23 @@ func (s *Server) handleStream(t transport.ServerTransport, stream *transport.Ser
 	// calls come from the gRPC layer.
 	stream.SetContext(ctx)
 
+	//if service == "google.bytestream.ByteStream" && method == "Read" {
+
 	srv, knownService := s.services[service]
 	if knownService {
 		if md, ok := srv.methods[method]; ok {
+			stream.EnableTracing()
 			s.processUnaryRPC(ctx, stream, srv, md, ti)
 			return
 		}
 		if sd, ok := srv.streams[method]; ok {
-			if service == "google.bytestream.ByteStream" && method == "Read" {
-				hdrs := metadata.ValueFromIncomingContext(stream.Context(), "x-buildbuddy-log-all-bss-requests")
-				if len(hdrs) > 0 && hdrs[0] == "true" {
-					stream.EnableTracing()
-				}
-			}
+			//if service == "google.bytestream.ByteStream" && method == "Read" {
+			//	hdrs := metadata.ValueFromIncomingContext(stream.Context(), "x-buildbuddy-log-all-bss-requests")
+			//	if len(hdrs) > 0 && hdrs[0] == "true" {
+			//stream.EnableTracing()
+			//	}
+			//}
+			stream.EnableTracing()
 			s.processStreamingRPC(ctx, stream, srv, sd, ti)
 			return
 		}

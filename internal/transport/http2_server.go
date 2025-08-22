@@ -338,7 +338,7 @@ func NewServerTransport(conn net.Conn, config *ServerConfig) (_ ServerTransport,
 	t.handleSettings(sf)
 
 	go func() {
-		t.loopy = newLoopyWriter(serverSide, t.framer, t.controlBuf, t.bdpEst, t.conn, t.logger, t.outgoingGoAwayHandler, t.bufferPool)
+		t.loopy = newLoopyWriter(serverSide, t.framer, t.controlBuf, t.bdpEst, t.conn, t.logger, t.outgoingGoAwayHandler, t.bufferPool, t.stats)
 		err := t.loopy.run()
 		close(t.loopyWriterDone)
 		if !isIOError(err) {
@@ -1149,7 +1149,8 @@ func (t *http2Server) enableTracing(s *ServerStream) {
 	if s.getState() == streamDone {
 		return
 	}
-	if err := t.controlBuf.put(&traceStream{streamID: s.id}); err != nil {
+	log.Printf("VVVVV ENABLE TRAVING FOR %q STREAM ID %d\n", s.Method(), s.id)
+	if err := t.controlBuf.put(&traceStream{ctx: s.Context(), streamID: s.id}); err != nil {
 		log.Printf("VVVVV failed to enable tracing for %d: %v\n", s.id, err)
 	}
 }
